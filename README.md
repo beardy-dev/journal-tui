@@ -93,7 +93,7 @@ Running `journal` with no arguments opens the writing interface immediately. The
   ctrl+s commit  ·  esc quit
 ```
 
-Press `ctrl+s` to commit the entry. The app will pull, commit, and push automatically. Press `esc` to quit without saving.
+Press `ctrl+s` to commit the entry. The app will pull/commit/push as needed, then clear the editor so you can continue writing another entry. Press `esc` to quit without saving.
 
 While composing, you can also manage journals in-app:
 - `ctrl+o` open journal picker (switch active journal with `enter`)
@@ -110,7 +110,7 @@ journal log
 journal log work
 ```
 
-Navigate with arrow keys or `j`/`k`. Press `enter` to read an entry in full, `esc` to go back, `q` to quit.
+Navigate with arrow keys or `j`/`k`. Press `enter` to read an entry in full, `n`/`p` to jump to next/previous entry while in detail view, `esc` to go back, `q` to quit.
 
 ### Themes
 

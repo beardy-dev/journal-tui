@@ -59,6 +59,7 @@ var (
 	accentStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
 	panelStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).Padding(0, 1)
 	sectionLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("117"))
+	plainBoldStyle    = lipgloss.NewStyle().Bold(true)
 )
 
 func renderPanel(lines ...string) string {
@@ -374,9 +375,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = stateError
 			m.err = msg.err
 		} else {
-			m.state = stateDone
+			m.state = stateComposing
+			m.err = nil
+			m.textarea.Reset()
+			m.textarea.Focus()
+			m.now = time.Now()
+			name, repoPath, err := m.cfg.journal(m.activeJournalName())
+			if err == nil {
+				m.syncFor = name
+				m.syncLoading = true
+				m.syncStatus = nil
+				m.syncErr = nil
+				return m, tea.Batch(m.spinner.Tick, syncStatusCmd(name, repoPath))
+			}
 		}
-		return m, tea.Quit
+		return m, nil
 
 	case spinner.TickMsg:
 		if m.locating || m.state == stateCommitting || m.syncLoading {
@@ -749,6 +762,24 @@ func (m listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.state == listDetail {
+			switch msg.String() {
+			case "n", "right":
+				if m.cursor < len(m.entries)-1 {
+					m.cursor++
+					m.top = clampTop(m.cursor, m.top, m.visibleCount())
+					m.viewport.SetContent(m.detailContent())
+					m.viewport.GotoTop()
+				}
+				return m, nil
+			case "p", "left":
+				if m.cursor > 0 {
+					m.cursor--
+					m.top = clampTop(m.cursor, m.top, m.visibleCount())
+					m.viewport.SetContent(m.detailContent())
+					m.viewport.GotoTop()
+				}
+				return m, nil
+			}
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
@@ -804,10 +835,11 @@ func (m listModel) View() string {
 		var body strings.Builder
 		if m.cursor < len(m.entries) {
 			e := m.entries[m.cursor]
-			body.WriteString(sectionLabelStyle.Render(formatDate(e.Timestamp)) + "\n")
+			meta := formatDate(e.Timestamp)
 			if e.Location != "" {
-				body.WriteString(subtitleStyle.Render(e.Location) + "\n")
+				meta += " · " + e.Location
 			}
+			body.WriteString(subtitleStyle.Render(meta) + "\n")
 			sep := strings.Repeat("─", m.vpWidth())
 			body.WriteString(hintStyle.Render(sep) + "\n\n")
 		}
@@ -819,7 +851,7 @@ func (m listModel) View() string {
 		if m.viewport.TotalLineCount() > m.viewport.VisibleLineCount() {
 			scrollPct = fmt.Sprintf(" (%d%%)", int(m.viewport.ScrollPercent()*100))
 		}
-		b.WriteString("  " + hintStyle.Render("↑↓ scroll"+scrollPct+"  ·  esc back  ·  q quit") + "\n")
+		b.WriteString("  " + hintStyle.Render("↑↓ scroll"+scrollPct+"  ·  n/p next prev  ·  esc back  ·  q quit") + "\n")
 	}
 
 	b.WriteString("\n")

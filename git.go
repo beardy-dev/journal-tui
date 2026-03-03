@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+type SyncStatus struct {
+	Branch      string
+	Upstream    string
+	HasUpstream bool
+	Ahead       int
+	Behind      int
+}
+
 func commitEntry(repoPath, entry string, loc Location) error {
 	now := time.Now()
 	timestamp := now.Format(time.RFC3339)
@@ -82,15 +90,61 @@ func initRepo(path string) error {
 // commitsAhead returns the number of local commits not yet pushed to the
 // upstream branch. Returns an error if no upstream is configured.
 func commitsAhead(repoPath string) (int, error) {
-	out, err := gitOutput(repoPath, "rev-list", "--count", "@{u}..HEAD")
+	status, err := getSyncStatus(repoPath)
 	if err != nil {
 		return 0, err
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil {
-		return 0, err
+	if !status.HasUpstream {
+		return 0, fmt.Errorf("no upstream configured for current branch")
 	}
-	return n, nil
+	return status.Ahead, nil
+}
+
+func getSyncStatus(repoPath string) (SyncStatus, error) {
+	branchOut, err := gitOutput(repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return SyncStatus{}, fmt.Errorf("resolve branch: %w", err)
+	}
+	branch := strings.TrimSpace(string(branchOut))
+
+	upstreamOut, err := gitOutput(repoPath, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+	if err != nil {
+		return SyncStatus{
+			Branch:      branch,
+			HasUpstream: false,
+		}, nil
+	}
+	upstream := strings.TrimSpace(string(upstreamOut))
+
+	// Refresh remote refs so pull status reflects remote state.
+	if err := git(repoPath, "fetch", "--quiet"); err != nil {
+		return SyncStatus{}, fmt.Errorf("git fetch: %w", err)
+	}
+
+	aheadOut, err := gitOutput(repoPath, "rev-list", "--count", "@{u}..HEAD")
+	if err != nil {
+		return SyncStatus{}, fmt.Errorf("count commits to push: %w", err)
+	}
+	behindOut, err := gitOutput(repoPath, "rev-list", "--count", "HEAD..@{u}")
+	if err != nil {
+		return SyncStatus{}, fmt.Errorf("count commits to pull: %w", err)
+	}
+	ahead, err := strconv.Atoi(strings.TrimSpace(string(aheadOut)))
+	if err != nil {
+		return SyncStatus{}, fmt.Errorf("parse ahead count: %w", err)
+	}
+	behind, err := strconv.Atoi(strings.TrimSpace(string(behindOut)))
+	if err != nil {
+		return SyncStatus{}, fmt.Errorf("parse behind count: %w", err)
+	}
+
+	return SyncStatus{
+		Branch:      branch,
+		Upstream:    upstream,
+		HasUpstream: true,
+		Ahead:       ahead,
+		Behind:      behind,
+	}, nil
 }
 
 func gitOutput(repoPath string, args ...string) ([]byte, error) {

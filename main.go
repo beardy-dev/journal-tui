@@ -30,7 +30,7 @@ func main() {
 			}
 			runConfig(cfg)
 			return
-		case "journals", "list":
+		case "list":
 			if cfg == nil {
 				fmt.Fprintln(os.Stderr, "journal: no journals configured — run `journal add <name>`")
 				os.Exit(1)
@@ -86,6 +86,10 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		default:
+			fmt.Fprintf(os.Stderr, "journal: unknown command %q\n", args[0])
+			fmt.Fprintln(os.Stderr, "Run `journal help` to see available commands.")
+			os.Exit(1)
 		}
 	}
 
@@ -210,9 +214,10 @@ Commands:
   list           list configured journals
   log [name]     browse entries (active journal if omitted)
   sync [name]    push local commits (active journal if omitted)
+  sync status [name|all]
+                 show push/pull status (active journal if omitted)
   add <name>     add a named journal
   use <name>     set active journal
-  journals       list configured journals (alias: list)
   config         show current configuration
   help           show this help message`)
 }
@@ -310,6 +315,10 @@ func runUseJournal(cfg *Config, args []string) error {
 
 // runSync offers to push local commits to the remote.
 func runSync(cfg *Config, args []string) error {
+	if len(args) > 0 && args[0] == "status" {
+		return runSyncStatus(cfg, args[1:])
+	}
+
 	journalName := ""
 	if len(args) > 0 {
 		journalName = args[0]
@@ -345,4 +354,75 @@ func runSync(cfg *Config, args []string) error {
 	}
 	fmt.Println("done.")
 	return nil
+}
+
+func runSyncStatus(cfg *Config, args []string) error {
+	target, all, err := resolveSyncStatusTarget(args)
+	if err != nil {
+		return err
+	}
+
+	if all {
+		names := cfg.journalNames()
+		for i, name := range names {
+			repoPath := cfg.Journals[name]
+			status, err := getSyncStatus(repoPath)
+			if err != nil {
+				fmt.Printf("%s: error: %v\n", name, err)
+			} else {
+				printSyncStatus(name, status)
+			}
+			if i < len(names)-1 {
+				fmt.Println()
+			}
+		}
+		return nil
+	}
+
+	name, repoPath, err := cfg.journal(target)
+	if err != nil {
+		return err
+	}
+	status, err := getSyncStatus(repoPath)
+	if err != nil {
+		return err
+	}
+	printSyncStatus(name, status)
+	return nil
+}
+
+func resolveSyncStatusTarget(args []string) (target string, all bool, err error) {
+	if len(args) > 1 {
+		return "", false, fmt.Errorf("usage: journal sync status [name|all]")
+	}
+	if len(args) == 0 {
+		return "", false, nil
+	}
+	target = strings.TrimSpace(args[0])
+	return target, target == "all", nil
+}
+
+func printSyncStatus(name string, status SyncStatus) {
+	fmt.Printf("journal: %s\n", name)
+	if status.Branch != "" {
+		fmt.Printf("branch: %s\n", status.Branch)
+	}
+	if !status.HasUpstream {
+		fmt.Println("upstream: none configured")
+		fmt.Println("status: cannot determine push/pull counts")
+		return
+	}
+	fmt.Printf("upstream: %s\n", status.Upstream)
+	fmt.Printf("to push: %d\n", status.Ahead)
+	fmt.Printf("to pull: %d\n", status.Behind)
+	switch {
+	case status.Ahead == 0 && status.Behind == 0:
+		fmt.Println("status: up to date")
+	case status.Ahead > 0 && status.Behind > 0:
+		fmt.Println("status: needs push and pull")
+	case status.Ahead > 0:
+		fmt.Println("status: needs push")
+	default:
+		fmt.Println("status: needs pull")
+	}
 }

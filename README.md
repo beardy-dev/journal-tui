@@ -62,9 +62,13 @@ journal log            browse active journal entries
 journal log work       browse a specific named journal
 journal sync           push active journal commits
 journal sync work      push a specific named journal
+journal sync status    show active journal push/pull status
+journal sync status work
+                      show a specific named journal push/pull status
+journal sync status all
+                      show push/pull status for all journals
 journal add work       add a named journal
 journal use work       set active journal
-journal journals       list configured journals
 journal config         show current configuration
 journal help           show available commands
 ```
@@ -103,9 +107,20 @@ Navigate with arrow keys or `j`/`k`. Press `enter` to read an entry in full, `es
 journal sync
 # or
 journal sync work
+# or
+journal sync status
+# or
+journal sync status work
+# or
+journal sync status all
 ```
 
-Shows how many local commits haven't been pushed yet and asks for confirmation before pushing.
+`journal sync` shows how many local commits haven't been pushed yet and asks for confirmation before pushing.
+
+`journal sync status` shows sync state without changing anything:
+- current branch and upstream
+- commits to push
+- commits to pull
 
 ## Entry format
 

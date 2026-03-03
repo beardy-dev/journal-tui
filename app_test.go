@@ -148,3 +148,37 @@ func TestConfigAddAndUseJournal(t *testing.T) {
 		t.Fatal("expected missing journal error")
 	}
 }
+
+func TestResolveSyncStatusTarget(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		wantTarget string
+		wantAll    bool
+		wantErr    bool
+	}{
+		{name: "active by default", args: nil, wantTarget: "", wantAll: false, wantErr: false},
+		{name: "named journal", args: []string{"work"}, wantTarget: "work", wantAll: false, wantErr: false},
+		{name: "all journals", args: []string{"all"}, wantTarget: "all", wantAll: true, wantErr: false},
+		{name: "trim spaces", args: []string{"  work  "}, wantTarget: "work", wantAll: false, wantErr: false},
+		{name: "too many args", args: []string{"work", "extra"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTarget, gotAll, err := resolveSyncStatusTarget(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err=%v, wantErr=%v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if gotTarget != tt.wantTarget {
+				t.Fatalf("target got %q, want %q", gotTarget, tt.wantTarget)
+			}
+			if gotAll != tt.wantAll {
+				t.Fatalf("all got %v, want %v", gotAll, tt.wantAll)
+			}
+		})
+	}
+}

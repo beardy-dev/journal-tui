@@ -83,7 +83,7 @@ func (c *Config) activeJournal() (string, string, error) {
 	}
 	repoPath, ok := c.Journals[c.ActiveJournal]
 	if !ok {
-		return "", "", fmt.Errorf("active journal %q does not exist; run `journal journals`", c.ActiveJournal)
+		return "", "", fmt.Errorf("active journal %q does not exist; run `journal list`", c.ActiveJournal)
 	}
 	return c.ActiveJournal, repoPath, nil
 }

@@ -16,6 +16,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "journal: %v\n", err)
 		os.Exit(1)
 	}
+	if cfg != nil {
+		if err := applyThemeByName(cfg.Theme); err != nil {
+			if fallbackErr := applyThemeByName(defaultThemeName); fallbackErr != nil {
+				fmt.Fprintf(os.Stderr, "journal: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Fprintf(os.Stderr, "journal: %v (using %q)\n", err, defaultThemeName)
+		}
+	}
 
 	args := os.Args[1:]
 	if len(args) > 0 {
@@ -52,6 +61,16 @@ func main() {
 				os.Exit(1)
 			}
 			if err := runUseJournal(cfg, args[1:]); err != nil {
+				fmt.Fprintf(os.Stderr, "journal: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "theme":
+			if cfg == nil {
+				cfg = &Config{}
+				cfg.migrateLegacy()
+			}
+			if err := runTheme(cfg, args[1:]); err != nil {
 				fmt.Fprintf(os.Stderr, "journal: %v\n", err)
 				os.Exit(1)
 			}
@@ -98,6 +117,13 @@ func main() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "journal: %v\n", err)
 			os.Exit(1)
+		}
+		if err := applyThemeByName(cfg.Theme); err != nil {
+			if fallbackErr := applyThemeByName(defaultThemeName); fallbackErr != nil {
+				fmt.Fprintf(os.Stderr, "journal: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Fprintf(os.Stderr, "journal: %v (using %q)\n", err, defaultThemeName)
 		}
 	}
 
@@ -212,6 +238,11 @@ Commands:
   (none)         write a new entry in active journal
   list           list configured journals
   log [name]     browse entries (active journal if omitted)
+  theme          show current theme and how to switch
+  theme list     list available themes (built-in + custom)
+  theme set <name>
+                 set active theme
+  theme init     create a custom themes file template
   sync [name]    push local commits (active journal if omitted)
   sync status [name|all]
                  show push/pull status (active journal if omitted)
@@ -226,6 +257,7 @@ func runConfig(cfg *Config) {
 	cfg.migrateLegacy()
 	fmt.Printf("config file:      %s\n", configPath())
 	fmt.Printf("active_journal:   %s\n", cfg.ActiveJournal)
+	fmt.Printf("theme:            %s\n", cfg.Theme)
 	for _, name := range cfg.journalNames() {
 		fmt.Printf("journal.%s:      %s\n", name, cfg.Journals[name])
 	}
@@ -310,6 +342,69 @@ func runUseJournal(cfg *Config, args []string) error {
 	}
 	fmt.Printf("Active journal set to %q\n", name)
 	return nil
+}
+
+func runTheme(cfg *Config, args []string) error {
+	cfg.migrateLegacy()
+
+	if len(args) == 0 || args[0] == "show" {
+		themes, err := loadAllThemes()
+		if err != nil {
+			return err
+		}
+		if _, ok := themes[cfg.Theme]; !ok {
+			fmt.Printf("Current theme: %s (missing; falling back to %s)\n", cfg.Theme, defaultThemeName)
+		} else {
+			fmt.Printf("Current theme: %s\n", cfg.Theme)
+		}
+		fmt.Println("Use `journal theme list` to see available themes.")
+		fmt.Println("Use `journal theme set <name>` to switch.")
+		fmt.Printf("Custom themes file: %s\n", userThemesPath())
+		return nil
+	}
+
+	switch args[0] {
+	case "list":
+		themes, err := loadAllThemes()
+		if err != nil {
+			return err
+		}
+		for _, name := range themeNames(themes) {
+			marker := " "
+			if name == cfg.Theme {
+				marker = "*"
+			}
+			fmt.Printf("%s %s\n", marker, name)
+		}
+		return nil
+	case "set":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: journal theme set <name>")
+		}
+		name := strings.TrimSpace(args[1])
+		themes, err := loadAllThemes()
+		if err != nil {
+			return err
+		}
+		if _, ok := themes[name]; !ok {
+			return fmt.Errorf("theme %q not found (run `journal theme list`)", name)
+		}
+		cfg.Theme = name
+		if err := writeConfig(cfg); err != nil {
+			return fmt.Errorf("saving config: %w", err)
+		}
+		fmt.Printf("Theme set to %q\n", name)
+		return nil
+	case "init":
+		path, err := ensureUserThemesFile()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Custom themes file ready: %s\n", path)
+		return nil
+	default:
+		return fmt.Errorf("usage: journal theme [show|list|set <name>|init]")
+	}
 }
 
 // runSync offers to push local commits to the remote.

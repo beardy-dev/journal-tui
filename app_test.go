@@ -204,3 +204,22 @@ func TestSyncSummaryLocalOnly(t *testing.T) {
 		t.Fatalf("got %q, want local-only summary", got)
 	}
 }
+
+func TestMergedThemeOverridesOnlyProvidedFields(t *testing.T) {
+	base := Theme{
+		Title: "#111111", Subtitle: "#222222", Hint: "#333333", Error: "#444444",
+		Success: "#555555", Selected: "#666666", Accent: "#777777", PanelBorder: "#888888", SectionLabel: "#999999",
+	}
+	override := Theme{Title: "#aaaaaa", Accent: "#bbbbbb"}
+	got := mergedTheme(base, override)
+
+	if got.Title != "#aaaaaa" {
+		t.Fatalf("title got %q", got.Title)
+	}
+	if got.Accent != "#bbbbbb" {
+		t.Fatalf("accent got %q", got.Accent)
+	}
+	if got.Hint != base.Hint || got.PanelBorder != base.PanelBorder {
+		t.Fatalf("unexpected overwrite: %+v", got)
+	}
+}

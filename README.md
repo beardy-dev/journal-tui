@@ -60,6 +60,10 @@ journal                write a new entry in active journal
 journal list           list configured journals
 journal log            browse active journal entries
 journal log work       browse a specific named journal
+journal theme          show current theme
+journal theme list     list available themes
+journal theme set nord switch to a theme
+journal theme init     create custom theme template file
 journal sync           push active journal commits
 journal sync work      push a specific named journal
 journal sync status    show active journal push/pull status
@@ -105,6 +109,28 @@ journal log work
 ```
 
 Navigate with arrow keys or `j`/`k`. Press `enter` to read an entry in full, `esc` to go back, `q` to quit.
+
+### Themes
+
+Built-in dark themes:
+- `nord`
+- `twilight-5`
+- `akc12`
+
+Switch themes:
+
+```bash
+journal theme list
+journal theme set twilight-5
+```
+
+Create a custom themes file template:
+
+```bash
+journal theme init
+```
+
+This creates `~/.config/journal/themes.toml`. Add `[themes.<name>]` blocks there and then run `journal theme set <name>`.
 
 ### Syncing
 

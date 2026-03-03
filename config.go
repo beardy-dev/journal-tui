@@ -13,6 +13,7 @@ import (
 type Config struct {
 	ActiveJournal string            `toml:"active_journal,omitempty"`
 	Journals      map[string]string `toml:"journals,omitempty"`
+	Theme         string            `toml:"theme,omitempty"`
 	RepoPath      string            `toml:"repo_path,omitempty"` // legacy single-journal key
 }
 
@@ -70,6 +71,9 @@ func (c *Config) migrateLegacy() {
 		for name := range c.Journals {
 			c.ActiveJournal = name
 		}
+	}
+	if strings.TrimSpace(c.Theme) == "" {
+		c.Theme = defaultThemeName
 	}
 }
 

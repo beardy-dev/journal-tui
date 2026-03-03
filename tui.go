@@ -49,14 +49,27 @@ type syncStatusMsg struct {
 
 // Styles
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
-	subtitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
-	hintStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	successStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
-	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255"))
-	accentStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	subtitleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("109"))
+	hintStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	errorStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
+	successStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("84")).Bold(true)
+	selectedStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230"))
+	accentStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
+	panelStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).Padding(0, 1)
+	sectionLabelStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("117"))
 )
+
+func renderPanel(lines ...string) string {
+	return panelStyle.Render(strings.Join(lines, "\n"))
+}
+
+func renderHead(title, subtitle string) string {
+	if strings.TrimSpace(subtitle) == "" {
+		return "  " + titleStyle.Render(title)
+	}
+	return "  " + titleStyle.Render(title) + " " + hintStyle.Render("· "+subtitle)
+}
 
 type model struct {
 	state    state
@@ -98,7 +111,7 @@ func newModel(cfg *Config) model {
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	sp.Style = accentStyle
 
 	ta := textarea.New()
 	ta.Placeholder = ""
@@ -325,37 +338,37 @@ func (m model) View() string {
 
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString("  " + titleStyle.Render("journal") + "\n")
+	b.WriteString(renderHead("journal", "write") + "\n")
 
 	switch m.state {
 	case stateComposing:
 		if m.screen == screenJournalPicker {
-			b.WriteString("  " + subtitleStyle.Render("journals") + "\n")
-			b.WriteString("\n")
+			var body strings.Builder
+			body.WriteString(sectionLabelStyle.Render("Journals") + "\n")
 			for i, name := range m.journalNames {
 				line := name
 				if name == m.activeJournalName() {
 					line += " (active)"
 				}
 				if i == m.journalIndex {
-					b.WriteString("  " + accentStyle.Render("▶") + " " + selectedStyle.Render(line) + "\n")
+					body.WriteString(accentStyle.Render("▶") + " " + selectedStyle.Render(line) + "\n")
 				} else {
-					b.WriteString("    " + hintStyle.Render(line) + "\n")
+					body.WriteString("  " + hintStyle.Render(line) + "\n")
 				}
 			}
-			b.WriteString("\n")
-			b.WriteString("  " + hintStyle.Render(m.syncSummary()) + "\n")
+			body.WriteString("\n" + subtitleStyle.Render(m.syncSummary()))
+			b.WriteString("  " + renderPanel(body.String()) + "\n")
 			b.WriteString("  " + hintStyle.Render("↑↓ select  ·  enter activate  ·  l logs  ·  s sync status  ·  esc back") + "\n")
 		} else {
-			b.WriteString("  " + subtitleStyle.Render(formatComposeHeader(m.now, m.location, m.locating, m.spinner)) + "\n")
-			b.WriteString("  " + hintStyle.Render("active: "+m.activeJournalName()) + "\n")
-			b.WriteString("  " + hintStyle.Render(m.syncSummary()) + "\n")
-			b.WriteString("\n")
+			var body strings.Builder
+			body.WriteString(sectionLabelStyle.Render(formatComposeHeader(m.now, m.location, m.locating, m.spinner)) + "\n")
+			body.WriteString(subtitleStyle.Render("active: "+m.activeJournalName()) + "\n")
+			body.WriteString(subtitleStyle.Render(m.syncSummary()) + "\n\n")
 			lines := strings.Split(m.textarea.View(), "\n")
 			for _, line := range lines {
-				b.WriteString("  " + line + "\n")
+				body.WriteString(line + "\n")
 			}
-			b.WriteString("\n")
+			b.WriteString("  " + renderPanel(strings.TrimRight(body.String(), "\n")) + "\n")
 			b.WriteString("  " + hintStyle.Render("ctrl+s commit  ·  ctrl+o journals  ·  ctrl+l logs  ·  ctrl+r sync status  ·  esc quit") + "\n")
 		}
 
@@ -364,18 +377,13 @@ func (m model) View() string {
 		if location := m.location.String(); location != "" {
 			header += " · " + location
 		}
-		b.WriteString("  " + subtitleStyle.Render(header) + "\n")
-		b.WriteString("\n")
-		b.WriteString("  " + m.spinner.View() + " committing…\n")
+		b.WriteString("  " + renderPanel(sectionLabelStyle.Render(header), "", m.spinner.View()+" "+subtitleStyle.Render("committing...")) + "\n")
 
 	case stateDone:
-		b.WriteString("\n")
-		b.WriteString("  " + successStyle.Render("entry saved.") + "\n")
+		b.WriteString("  " + renderPanel(successStyle.Render("entry saved.")) + "\n")
 
 	case stateError:
-		b.WriteString("\n")
-		b.WriteString("  " + errorStyle.Render(fmt.Sprintf("error: %v", m.err)) + "\n")
-		b.WriteString("\n")
+		b.WriteString("  " + renderPanel(errorStyle.Render(fmt.Sprintf("error: %v", m.err))) + "\n")
 		b.WriteString("  " + hintStyle.Render("press any key to exit") + "\n")
 	}
 
@@ -529,7 +537,7 @@ type listModel struct {
 func newListModel(repoPath string) listModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+	sp.Style = accentStyle
 	return listModel{
 		state:    listLoading,
 		spinner:  sp,
@@ -626,18 +634,18 @@ func (m listModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m listModel) View() string {
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString("  " + titleStyle.Render("journal") + " " + hintStyle.Render("— entries") + "\n")
-	b.WriteString("\n")
+	b.WriteString(renderHead("journal", "entries") + "\n")
 
 	switch m.state {
 	case listLoading:
-		b.WriteString("  " + m.spinner.View() + " loading entries…\n")
+		b.WriteString("  " + renderPanel(m.spinner.View()+" "+subtitleStyle.Render("loading entries...")) + "\n")
 
 	case listBrowsing:
+		var body strings.Builder
 		if m.err != nil {
-			b.WriteString("  " + errorStyle.Render(fmt.Sprintf("error: %v", m.err)) + "\n")
+			body.WriteString(errorStyle.Render(fmt.Sprintf("error: %v", m.err)) + "\n")
 		} else if len(m.entries) == 0 {
-			b.WriteString("  " + subtitleStyle.Render("no entries found for this journal") + "\n")
+			body.WriteString(subtitleStyle.Render("no entries found for this journal") + "\n")
 		} else {
 			end := m.top + m.visibleCount()
 			if end > len(m.entries) {
@@ -650,30 +658,30 @@ func (m listModel) View() string {
 					line += " · " + e.Location
 				}
 				if i == m.cursor {
-					b.WriteString("  " + accentStyle.Render("▶") + " " + selectedStyle.Render(line) + "\n")
+					body.WriteString(accentStyle.Render("▶") + " " + selectedStyle.Render(line) + "\n")
 				} else {
-					b.WriteString("    " + hintStyle.Render(line) + "\n")
+					body.WriteString("  " + hintStyle.Render(line) + "\n")
 				}
 			}
 		}
-		b.WriteString("\n")
+		b.WriteString("  " + renderPanel(strings.TrimRight(body.String(), "\n")) + "\n")
 		b.WriteString("  " + hintStyle.Render("↑↓ navigate  ·  enter view  ·  q quit") + "\n")
 
 	case listDetail:
+		var body strings.Builder
 		if m.cursor < len(m.entries) {
 			e := m.entries[m.cursor]
-			b.WriteString("  " + subtitleStyle.Render(formatDate(e.Timestamp)) + "\n")
+			body.WriteString(sectionLabelStyle.Render(formatDate(e.Timestamp)) + "\n")
 			if e.Location != "" {
-				b.WriteString("  " + hintStyle.Render(e.Location) + "\n")
+				body.WriteString(subtitleStyle.Render(e.Location) + "\n")
 			}
 			sep := strings.Repeat("─", m.vpWidth())
-			b.WriteString("  " + hintStyle.Render(sep) + "\n")
-			b.WriteString("\n")
+			body.WriteString(hintStyle.Render(sep) + "\n\n")
 		}
 		for _, line := range strings.Split(m.viewport.View(), "\n") {
-			b.WriteString("  " + line + "\n")
+			body.WriteString(line + "\n")
 		}
-		b.WriteString("\n")
+		b.WriteString("  " + renderPanel(strings.TrimRight(body.String(), "\n")) + "\n")
 		scrollPct := ""
 		if m.viewport.TotalLineCount() > m.viewport.VisibleLineCount() {
 			scrollPct = fmt.Sprintf(" (%d%%)", int(m.viewport.ScrollPercent()*100))

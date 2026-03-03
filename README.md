@@ -36,9 +36,10 @@ Make sure `~/.local/bin` is on your PATH.
 
 ## Setup
 
-Run `journal` for the first time and it will prompt for the path to your journal repository:
+Run `journal` for the first time and it will prompt for a journal name and repository path:
 
 ```
+journal name [default]: personal
 journal repo path: /home/you/journal
 ```
 
@@ -55,11 +56,17 @@ Configuration is saved to `~/.config/journal/config.toml`.
 ## Usage
 
 ```
-journal           write a new journal entry
-journal list      browse previous entries
-journal sync      push local commits to remote
-journal config    show current configuration
-journal help      show available commands
+journal                write a new entry in active journal
+journal list           list configured journals
+journal log            browse active journal entries
+journal log work       browse a specific named journal
+journal sync           push active journal commits
+journal sync work      push a specific named journal
+journal add work       add a named journal
+journal use work       set active journal
+journal journals       list configured journals
+journal config         show current configuration
+journal help           show available commands
 ```
 
 ### Writing an entry
@@ -83,7 +90,9 @@ Press `ctrl+s` to commit the entry. The app will pull, commit, and push automati
 ### Browsing entries
 
 ```bash
-journal list
+journal log
+# or
+journal log work
 ```
 
 Navigate with arrow keys or `j`/`k`. Press `enter` to read an entry in full, `esc` to go back, `q` to quit.
@@ -92,6 +101,8 @@ Navigate with arrow keys or `j`/`k`. Press `enter` to read an entry in full, `es
 
 ```bash
 journal sync
+# or
+journal sync work
 ```
 
 Shows how many local commits haven't been pushed yet and asks for confirmation before pushing.
@@ -121,7 +132,11 @@ This format matches the iOS Shortcuts + Working Copy workflow, so entries writte
 `~/.config/journal/config.toml`:
 
 ```toml
-repo_path = "/home/you/journal"
+active_journal = "personal"
+
+[journals]
+personal = "/home/you/journal"
+work = "/home/you/work-journal"
 ```
 
 The config directory and file are created with restricted permissions (`0700`/`0600`) so the repo path is not readable by other users on the system.

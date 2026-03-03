@@ -91,3 +91,60 @@ func TestFormatComposeHeader(t *testing.T) {
 		t.Fatalf("locating indicator missing from header: %q", header)
 	}
 }
+
+func TestConfigMigrateLegacy(t *testing.T) {
+	cfg := &Config{RepoPath: "/tmp/journal"}
+	cfg.migrateLegacy()
+
+	if cfg.RepoPath != "" {
+		t.Fatalf("legacy repo_path should be cleared after migration")
+	}
+	if got := cfg.ActiveJournal; got != "default" {
+		t.Fatalf("active journal got %q, want default", got)
+	}
+	if got := cfg.Journals["default"]; got != "/tmp/journal" {
+		t.Fatalf("default journal path got %q", got)
+	}
+}
+
+func TestConfigJournalSelection(t *testing.T) {
+	cfg := &Config{
+		ActiveJournal: "personal",
+		Journals: map[string]string{
+			"personal": "/tmp/personal",
+			"work":     "/tmp/work",
+		},
+	}
+
+	name, path, err := cfg.journal("")
+	if err != nil {
+		t.Fatalf("journal active: %v", err)
+	}
+	if name != "personal" || path != "/tmp/personal" {
+		t.Fatalf("got %q -> %q", name, path)
+	}
+
+	name, path, err = cfg.journal("work")
+	if err != nil {
+		t.Fatalf("journal named: %v", err)
+	}
+	if name != "work" || path != "/tmp/work" {
+		t.Fatalf("got %q -> %q", name, path)
+	}
+}
+
+func TestConfigAddAndUseJournal(t *testing.T) {
+	cfg := &Config{}
+	if err := cfg.addJournal("work", "/tmp/work-journal"); err != nil {
+		t.Fatalf("addJournal: %v", err)
+	}
+	if cfg.ActiveJournal != "work" {
+		t.Fatalf("active journal got %q, want work", cfg.ActiveJournal)
+	}
+	if err := cfg.addJournal("work", "/tmp/duplicate"); err == nil {
+		t.Fatal("expected duplicate name error")
+	}
+	if err := cfg.setActiveJournal("missing"); err == nil {
+		t.Fatal("expected missing journal error")
+	}
+}

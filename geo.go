@@ -13,6 +13,15 @@ type Location struct {
 }
 
 func (l Location) String() string {
+	if l.City == "" && l.Region == "" {
+		return ""
+	}
+	if l.City == "" {
+		return l.Region
+	}
+	if l.Region == "" {
+		return l.City
+	}
 	return fmt.Sprintf("%s, %s", l.City, l.Region)
 }
 

@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -44,15 +42,18 @@ func loadEntries(repoPath string) ([]Entry, error) {
 		entries = append(entries, Entry{
 			Hash:      strings.TrimSpace(parts[0]),
 			Timestamp: t,
-			Location:  readLocation(repoPath, subject),
+			Location:  readLocation(repoPath, strings.TrimSpace(parts[0]), subject),
 			Body:      body,
 		})
 	}
 	return entries, nil
 }
 
-func readLocation(repoPath, timestamp string) string {
-	data, err := os.ReadFile(filepath.Join(repoPath, timestamp+".txt"))
+func readLocation(repoPath, hash, timestamp string) string {
+	if hash == "" || timestamp == "" {
+		return ""
+	}
+	data, err := gitOutput(repoPath, "show", hash+":"+timestamp+".txt")
 	if err != nil {
 		return ""
 	}

@@ -97,8 +97,10 @@ Press `ctrl+s` to commit the entry. The app will pull, commit, and push automati
 
 While composing, you can also manage journals in-app:
 - `ctrl+o` open journal picker (switch active journal with `enter`)
+- `ctrl+t` open theme picker (switch theme with `enter`)
 - `ctrl+l` open logs for the active or selected journal
 - `ctrl+r` refresh sync status
+- in the journal picker, press `t` to open the theme picker
 
 ### Browsing entries
 

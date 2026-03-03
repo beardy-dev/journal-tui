@@ -29,6 +29,7 @@ const (
 	screenCompose screen = iota
 	screenJournalPicker
 	screenLogs
+	screenThemePicker
 )
 
 // Messages
@@ -64,6 +65,28 @@ func renderPanel(lines ...string) string {
 	return panelStyle.Render(strings.Join(lines, "\n"))
 }
 
+func renderPanelWithWidth(totalWidth int, lines ...string) string {
+	if totalWidth <= 0 {
+		return renderPanel(lines...)
+	}
+	inner := totalWidth - 6 // indent(2) + border/padding(4)
+	if inner < 10 {
+		inner = 10
+	}
+	return panelStyle.Width(inner).Render(strings.Join(lines, "\n"))
+}
+
+func indentBlock(s, prefix string) string {
+	if s == "" || prefix == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
+
 func renderHead(title, subtitle string) string {
 	if strings.TrimSpace(subtitle) == "" {
 		return "  " + titleStyle.Render(title)
@@ -85,6 +108,10 @@ type model struct {
 	cfg          *Config
 	journalNames []string
 	journalIndex int
+	themeNames   []string
+	themeIndex   int
+	themeFrom    screen
+	themeErr     error
 
 	syncFor     string
 	syncStatus  *SyncStatus
@@ -190,6 +217,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	if m.screen == screenThemePicker {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "esc":
+				m.screen = m.themeFrom
+				return m, nil
+			case "up", "k":
+				if m.themeIndex > 0 {
+					m.themeIndex--
+				}
+				return m, nil
+			case "down", "j":
+				if m.themeIndex < len(m.themeNames)-1 {
+					m.themeIndex++
+				}
+				return m, nil
+			case "enter":
+				if err := m.setTheme(m.selectedThemeName()); err != nil {
+					m.themeErr = err
+					return m, nil
+				}
+				m.screen = m.themeFrom
+				return m, nil
+			}
+		}
+		return m, nil
+	}
+
 	if m.screen == screenLogs {
 		if winMsg, ok := msg.(tea.WindowSizeMsg); ok {
 			m.windowHeight = winMsg.Height
@@ -218,6 +273,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.windowHeight = msg.Height
 		m.windowWidth = msg.Width
+		taWidth := m.windowWidth - 10
+		if taWidth < 20 {
+			taWidth = 20
+		}
+		m.textarea.SetWidth(taWidth)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -252,6 +312,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "ctrl+o":
 				m.screen = screenJournalPicker
 				return m, nil
+			case "ctrl+t":
+				return m.openThemePicker(screenCompose)
 			case "ctrl+l":
 				return m.openLogsFor(m.activeJournalName())
 			case "ctrl+r":
@@ -282,6 +344,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.openLogsFor(m.selectedJournalName())
 			case "s":
 				return m.refreshSyncFor(m.selectedJournalName())
+			case "t":
+				return m.openThemePicker(screenJournalPicker)
 			}
 		}
 
@@ -342,7 +406,26 @@ func (m model) View() string {
 
 	switch m.state {
 	case stateComposing:
-		if m.screen == screenJournalPicker {
+		if m.screen == screenThemePicker {
+			var body strings.Builder
+			body.WriteString(sectionLabelStyle.Render("Themes") + "\n")
+			for i, name := range m.themeNames {
+				line := name
+				if name == m.cfg.Theme {
+					line += " (active)"
+				}
+				if i == m.themeIndex {
+					body.WriteString(accentStyle.Render("▶") + " " + selectedStyle.Render(line) + "\n")
+				} else {
+					body.WriteString("  " + hintStyle.Render(line) + "\n")
+				}
+			}
+			if m.themeErr != nil {
+				body.WriteString("\n" + errorStyle.Render(m.themeErr.Error()))
+			}
+			b.WriteString(indentBlock(renderPanelWithWidth(m.windowWidth, body.String()), "  ") + "\n")
+			b.WriteString("  " + hintStyle.Render("↑↓ select  ·  enter apply  ·  esc back") + "\n")
+		} else if m.screen == screenJournalPicker {
 			var body strings.Builder
 			body.WriteString(sectionLabelStyle.Render("Journals") + "\n")
 			for i, name := range m.journalNames {
@@ -357,8 +440,8 @@ func (m model) View() string {
 				}
 			}
 			body.WriteString("\n" + subtitleStyle.Render(m.syncSummary()))
-			b.WriteString("  " + renderPanel(body.String()) + "\n")
-			b.WriteString("  " + hintStyle.Render("↑↓ select  ·  enter activate  ·  l logs  ·  s sync status  ·  esc back") + "\n")
+			b.WriteString(indentBlock(renderPanelWithWidth(m.windowWidth, body.String()), "  ") + "\n")
+			b.WriteString("  " + hintStyle.Render("↑↓ select  ·  enter activate  ·  l logs  ·  s sync status  ·  t themes  ·  esc back") + "\n")
 		} else {
 			var body strings.Builder
 			body.WriteString(sectionLabelStyle.Render(formatComposeHeader(m.now, m.location, m.locating, m.spinner)) + "\n")
@@ -368,8 +451,8 @@ func (m model) View() string {
 			for _, line := range lines {
 				body.WriteString(line + "\n")
 			}
-			b.WriteString("  " + renderPanel(strings.TrimRight(body.String(), "\n")) + "\n")
-			b.WriteString("  " + hintStyle.Render("ctrl+s commit  ·  ctrl+o journals  ·  ctrl+l logs  ·  ctrl+r sync status  ·  esc quit") + "\n")
+			b.WriteString(indentBlock(renderPanelWithWidth(m.windowWidth, strings.TrimRight(body.String(), "\n")), "  ") + "\n")
+			b.WriteString("  " + hintStyle.Render("ctrl+s commit  ·  ctrl+o journals  ·  ctrl+t themes  ·  ctrl+l logs  ·  ctrl+r sync status  ·  esc quit") + "\n")
 		}
 
 	case stateCommitting:
@@ -377,13 +460,13 @@ func (m model) View() string {
 		if location := m.location.String(); location != "" {
 			header += " · " + location
 		}
-		b.WriteString("  " + renderPanel(sectionLabelStyle.Render(header), "", m.spinner.View()+" "+subtitleStyle.Render("committing...")) + "\n")
+		b.WriteString(indentBlock(renderPanelWithWidth(m.windowWidth, sectionLabelStyle.Render(header), "", m.spinner.View()+" "+subtitleStyle.Render("committing...")), "  ") + "\n")
 
 	case stateDone:
-		b.WriteString("  " + renderPanel(successStyle.Render("entry saved.")) + "\n")
+		b.WriteString(indentBlock(renderPanelWithWidth(m.windowWidth, successStyle.Render("entry saved.")), "  ") + "\n")
 
 	case stateError:
-		b.WriteString("  " + renderPanel(errorStyle.Render(fmt.Sprintf("error: %v", m.err))) + "\n")
+		b.WriteString(indentBlock(renderPanelWithWidth(m.windowWidth, errorStyle.Render(fmt.Sprintf("error: %v", m.err))), "  ") + "\n")
 		b.WriteString("  " + hintStyle.Render("press any key to exit") + "\n")
 	}
 
@@ -424,6 +507,26 @@ func (m *model) openLogsFor(name string) (tea.Model, tea.Cmd) {
 	return m, m.list.Init()
 }
 
+func (m *model) openThemePicker(from screen) (tea.Model, tea.Cmd) {
+	themes, err := loadAllThemes()
+	if err != nil {
+		m.themeErr = err
+		return m, nil
+	}
+	m.themeNames = themeNames(themes)
+	m.themeFrom = from
+	m.themeErr = nil
+	m.themeIndex = 0
+	for i, name := range m.themeNames {
+		if name == m.cfg.Theme {
+			m.themeIndex = i
+			break
+		}
+	}
+	m.screen = screenThemePicker
+	return m, nil
+}
+
 func (m *model) refreshSyncFor(name string) (tea.Model, tea.Cmd) {
 	journalName, repoPath, err := m.cfg.journal(name)
 	if err != nil {
@@ -458,6 +561,36 @@ func (m *model) switchActiveJournal(name string) error {
 		}
 	}
 	return nil
+}
+
+func (m *model) setTheme(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("theme name cannot be empty")
+	}
+	if err := applyThemeByName(name); err != nil {
+		return err
+	}
+	m.cfg.Theme = name
+	if err := writeConfig(m.cfg); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+	m.spinner.Style = accentStyle
+	m.list.spinner.Style = accentStyle
+	return nil
+}
+
+func (m *model) selectedThemeName() string {
+	if len(m.themeNames) == 0 {
+		return ""
+	}
+	if m.themeIndex < 0 {
+		m.themeIndex = 0
+	}
+	if m.themeIndex >= len(m.themeNames) {
+		m.themeIndex = len(m.themeNames) - 1
+	}
+	return m.themeNames[m.themeIndex]
 }
 
 func (m model) syncSummary() string {
@@ -638,7 +771,7 @@ func (m listModel) View() string {
 
 	switch m.state {
 	case listLoading:
-		b.WriteString("  " + renderPanel(m.spinner.View()+" "+subtitleStyle.Render("loading entries...")) + "\n")
+		b.WriteString(indentBlock(renderPanelWithWidth(m.windowWidth, m.spinner.View()+" "+subtitleStyle.Render("loading entries...")), "  ") + "\n")
 
 	case listBrowsing:
 		var body strings.Builder
@@ -664,7 +797,7 @@ func (m listModel) View() string {
 				}
 			}
 		}
-		b.WriteString("  " + renderPanel(strings.TrimRight(body.String(), "\n")) + "\n")
+		b.WriteString(indentBlock(renderPanelWithWidth(m.windowWidth, strings.TrimRight(body.String(), "\n")), "  ") + "\n")
 		b.WriteString("  " + hintStyle.Render("↑↓ navigate  ·  enter view  ·  q quit") + "\n")
 
 	case listDetail:
@@ -681,7 +814,7 @@ func (m listModel) View() string {
 		for _, line := range strings.Split(m.viewport.View(), "\n") {
 			body.WriteString(line + "\n")
 		}
-		b.WriteString("  " + renderPanel(strings.TrimRight(body.String(), "\n")) + "\n")
+		b.WriteString(indentBlock(renderPanelWithWidth(m.windowWidth, strings.TrimRight(body.String(), "\n")), "  ") + "\n")
 		scrollPct := ""
 		if m.viewport.TotalLineCount() > m.viewport.VisibleLineCount() {
 			scrollPct = fmt.Sprintf(" (%d%%)", int(m.viewport.ScrollPercent()*100))
@@ -703,7 +836,7 @@ func (m listModel) visibleCount() int {
 }
 
 func (m listModel) vpWidth() int {
-	w := m.windowWidth - 4
+	w := m.windowWidth - 6 // account for panel border/padding + left indent
 	if w < 1 {
 		w = 1
 	}

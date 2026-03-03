@@ -91,6 +91,11 @@ Running `journal` with no arguments opens the writing interface immediately. The
 
 Press `ctrl+s` to commit the entry. The app will pull, commit, and push automatically. Press `esc` to quit without saving.
 
+While composing, you can also manage journals in-app:
+- `ctrl+o` open journal picker (switch active journal with `enter`)
+- `ctrl+l` open logs for the active or selected journal
+- `ctrl+r` refresh sync status
+
 ### Browsing entries
 
 ```bash
@@ -158,7 +163,7 @@ The config directory and file are created with restricted permissions (`0700`/`0
 
 ## Privacy
 
-On each new entry, the app makes a single HTTPS request to [ip-api.com](https://ip-api.com) to look up your approximate city and region from your IP address. No API key is required. If the request fails, the entry is still saved with a blank location. No other network requests are made during normal use.
+On each new entry, the app makes a single HTTPS geolocation lookup (currently using `ipapi.co`, with `ipinfo.io` as fallback) to determine approximate city and region from your IP address. No API key is required. If the request fails, the entry is still saved with a blank location. No other network requests are made during normal use.
 
 ## Dependencies
 

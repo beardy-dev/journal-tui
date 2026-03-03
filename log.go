@@ -17,6 +17,9 @@ func loadEntries(repoPath string) ([]Entry, error) {
 	// Each record: <hash>\x00<subject>\x00<body>\x1f
 	out, err := gitOutput(repoPath, "log", "--format=format:%H%x00%s%x00%b%x1f")
 	if err != nil {
+		if isNoCommitsError(err) {
+			return []Entry{}, nil
+		}
 		return nil, fmt.Errorf("reading log: %w", err)
 	}
 
@@ -47,6 +50,14 @@ func loadEntries(repoPath string) ([]Entry, error) {
 		})
 	}
 	return entries, nil
+}
+
+func isNoCommitsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "does not have any commits yet")
 }
 
 func readLocation(repoPath, hash, timestamp string) string {

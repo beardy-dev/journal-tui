@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -27,22 +28,52 @@ func (l Location) String() string {
 
 func fetchLocation() (Location, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("https://ip-api.com/json?fields=city,region")
+	providers := []string{
+		"https://ipapi.co/json/",
+		"https://ipinfo.io/json",
+	}
+	var errs []string
+
+	for _, url := range providers {
+		loc, err := fetchLocationFrom(client, url)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", url, err))
+			continue
+		}
+		if loc.String() != "" {
+			return loc, nil
+		}
+		errs = append(errs, fmt.Sprintf("%s: empty location", url))
+	}
+
+	return Location{}, fmt.Errorf("geolocation lookup failed: %s", strings.Join(errs, "; "))
+}
+
+func fetchLocationFrom(client *http.Client, url string) (Location, error) {
+	resp, err := client.Get(url)
 	if err != nil {
-		return Location{}, fmt.Errorf("geolocation request: %w", err)
+		return Location{}, fmt.Errorf("request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return Location{}, fmt.Errorf("geolocation request: status %d", resp.StatusCode)
+		return Location{}, fmt.Errorf("status %d", resp.StatusCode)
 	}
 
 	var result struct {
-		City   string `json:"city"`
-		Region string `json:"region"`
+		City       string `json:"city"`
+		Region     string `json:"region"`
+		RegionCode string `json:"region_code"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return Location{}, fmt.Errorf("parsing geolocation: %w", err)
+		return Location{}, fmt.Errorf("parse: %w", err)
 	}
-	return Location{City: result.City, Region: result.Region}, nil
+	region := strings.TrimSpace(result.RegionCode)
+	if region == "" {
+		region = strings.TrimSpace(result.Region)
+	}
+	return Location{
+		City:   strings.TrimSpace(result.City),
+		Region: region,
+	}, nil
 }

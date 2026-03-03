@@ -23,6 +23,14 @@ const (
 	stateError
 )
 
+type screen int
+
+const (
+	screenCompose screen = iota
+	screenJournalPicker
+	screenLogs
+)
+
 // Messages
 type geoMsg struct {
 	loc Location
@@ -31,6 +39,12 @@ type geoMsg struct {
 
 type commitDoneMsg struct {
 	err error
+}
+
+type syncStatusMsg struct {
+	journal string
+	status  SyncStatus
+	err     error
 }
 
 // Styles
@@ -46,6 +60,7 @@ var (
 
 type model struct {
 	state    state
+	screen   screen
 	spinner  spinner.Model
 	textarea textarea.Model
 	locating bool
@@ -53,9 +68,34 @@ type model struct {
 	now      time.Time
 	repoPath string
 	err      error
+
+	cfg          *Config
+	journalNames []string
+	journalIndex int
+
+	syncFor     string
+	syncStatus  *SyncStatus
+	syncErr     error
+	syncLoading bool
+
+	list listModel
+
+	windowHeight int
+	windowWidth  int
 }
 
-func newModel(repoPath string) model {
+func newModel(cfg *Config) model {
+	cfg.migrateLegacy()
+	activeName, repoPath, _ := cfg.activeJournal()
+	names := cfg.journalNames()
+	activeIdx := 0
+	for i, name := range names {
+		if name == activeName {
+			activeIdx = i
+			break
+		}
+	}
+
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
@@ -73,19 +113,30 @@ func newModel(repoPath string) model {
 	ta.BlurredStyle.Base = lipgloss.NewStyle()
 
 	return model{
-		state:    stateComposing,
-		spinner:  sp,
-		textarea: ta,
-		locating: true,
-		now:      time.Now(),
-		repoPath: repoPath,
+		state:        stateComposing,
+		screen:       screenCompose,
+		spinner:      sp,
+		textarea:     ta,
+		locating:     true,
+		now:          time.Now(),
+		repoPath:     repoPath,
+		cfg:          cfg,
+		journalNames: names,
+		journalIndex: activeIdx,
+		syncFor:      activeName,
+		syncLoading:  true,
 	}
 }
 
 func (m model) Init() tea.Cmd {
+	activeName := m.syncFor
+	if activeName == "" {
+		activeName, _, _ = m.cfg.activeJournal()
+	}
 	return tea.Batch(
 		m.spinner.Tick,
 		fetchGeoCmd(),
+		syncStatusCmd(activeName, m.repoPath),
 	)
 }
 
@@ -98,18 +149,71 @@ func fetchGeoCmd() tea.Cmd {
 
 func commitCmd(repoPath, entry string, loc Location) tea.Cmd {
 	return func() tea.Msg {
+		// If async geolocation hasn't resolved yet, make one best-effort lookup
+		// so entries still capture location when available.
+		if loc.String() == "" {
+			if fetched, err := fetchLocation(); err == nil {
+				loc = fetched
+			}
+		}
 		err := commitEntry(repoPath, entry, loc)
 		return commitDoneMsg{err: err}
 	}
 }
 
+func syncStatusCmd(journalName, repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		status, err := getSyncStatus(repoPath)
+		return syncStatusMsg{
+			journal: journalName,
+			status:  status,
+			err:     err,
+		}
+	}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyCtrlC {
+		return m, tea.Quit
+	}
+
+	if m.screen == screenLogs {
+		if winMsg, ok := msg.(tea.WindowSizeMsg); ok {
+			m.windowHeight = winMsg.Height
+			m.windowWidth = winMsg.Width
+		}
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "q":
+				m.screen = screenCompose
+				return m, nil
+			case "esc":
+				if m.list.state != listDetail {
+					m.screen = screenCompose
+					return m, nil
+				}
+			}
+		}
+		next, cmd := m.list.Update(msg)
+		if lm, ok := next.(listModel); ok {
+			m.list = lm
+		}
+		return m, cmd
+	}
+
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.windowHeight = msg.Height
+		m.windowWidth = msg.Width
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyCtrlC:
-			return m, tea.Quit
 		case tea.KeyEsc:
+			if m.screen == screenJournalPicker {
+				m.screen = screenCompose
+				return m, nil
+			}
 			if m.state == stateComposing {
 				return m, tea.Quit
 			}
@@ -130,12 +234,63 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.state == stateComposing && m.screen == screenCompose {
+			switch msg.String() {
+			case "ctrl+o":
+				m.screen = screenJournalPicker
+				return m, nil
+			case "ctrl+l":
+				return m.openLogsFor(m.activeJournalName())
+			case "ctrl+r":
+				return m.refreshSyncFor(m.activeJournalName())
+			}
+		}
+
+		if m.state == stateComposing && m.screen == screenJournalPicker {
+			switch msg.String() {
+			case "up", "k":
+				if m.journalIndex > 0 {
+					m.journalIndex--
+				}
+				return m, nil
+			case "down", "j":
+				if m.journalIndex < len(m.journalNames)-1 {
+					m.journalIndex++
+				}
+				return m, nil
+			case "enter":
+				if err := m.switchActiveJournal(m.selectedJournalName()); err != nil {
+					m.syncErr = err
+					return m, nil
+				}
+				m.screen = screenCompose
+				return m.refreshSyncFor(m.activeJournalName())
+			case "l":
+				return m.openLogsFor(m.selectedJournalName())
+			case "s":
+				return m.refreshSyncFor(m.selectedJournalName())
+			}
+		}
+
 	case geoMsg:
 		m.locating = false
 		if msg.err == nil {
 			m.location = msg.loc
 		}
 		return m, textarea.Blink
+
+	case syncStatusMsg:
+		m.syncFor = msg.journal
+		m.syncLoading = false
+		if msg.err != nil {
+			m.syncErr = msg.err
+			m.syncStatus = nil
+		} else {
+			m.syncErr = nil
+			status := msg.status
+			m.syncStatus = &status
+		}
+		return m, nil
 
 	case commitDoneMsg:
 		if msg.err != nil {
@@ -147,14 +302,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case spinner.TickMsg:
-		if m.locating || m.state == stateCommitting {
+		if m.locating || m.state == stateCommitting || m.syncLoading {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
 		}
 	}
 
-	if m.state == stateComposing {
+	if m.state == stateComposing && m.screen == screenCompose {
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
 		return m, cmd
@@ -164,22 +319,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	var b strings.Builder
+	if m.screen == screenLogs {
+		return m.list.View()
+	}
 
+	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString("  " + titleStyle.Render("journal") + "\n")
 
 	switch m.state {
 	case stateComposing:
-		b.WriteString("  " + subtitleStyle.Render(formatComposeHeader(m.now, m.location, m.locating, m.spinner)) + "\n")
-		b.WriteString("\n")
-		// Indent textarea
-		lines := strings.Split(m.textarea.View(), "\n")
-		for _, line := range lines {
-			b.WriteString("  " + line + "\n")
+		if m.screen == screenJournalPicker {
+			b.WriteString("  " + subtitleStyle.Render("journals") + "\n")
+			b.WriteString("\n")
+			for i, name := range m.journalNames {
+				line := name
+				if name == m.activeJournalName() {
+					line += " (active)"
+				}
+				if i == m.journalIndex {
+					b.WriteString("  " + accentStyle.Render("▶") + " " + selectedStyle.Render(line) + "\n")
+				} else {
+					b.WriteString("    " + hintStyle.Render(line) + "\n")
+				}
+			}
+			b.WriteString("\n")
+			b.WriteString("  " + hintStyle.Render(m.syncSummary()) + "\n")
+			b.WriteString("  " + hintStyle.Render("↑↓ select  ·  enter activate  ·  l logs  ·  s sync status  ·  esc back") + "\n")
+		} else {
+			b.WriteString("  " + subtitleStyle.Render(formatComposeHeader(m.now, m.location, m.locating, m.spinner)) + "\n")
+			b.WriteString("  " + hintStyle.Render("active: "+m.activeJournalName()) + "\n")
+			b.WriteString("  " + hintStyle.Render(m.syncSummary()) + "\n")
+			b.WriteString("\n")
+			lines := strings.Split(m.textarea.View(), "\n")
+			for _, line := range lines {
+				b.WriteString("  " + line + "\n")
+			}
+			b.WriteString("\n")
+			b.WriteString("  " + hintStyle.Render("ctrl+s commit  ·  ctrl+o journals  ·  ctrl+l logs  ·  ctrl+r sync status  ·  esc quit") + "\n")
 		}
-		b.WriteString("\n")
-		b.WriteString("  " + hintStyle.Render("ctrl+s commit  ·  esc quit") + "\n")
 
 	case stateCommitting:
 		header := formatDate(m.now)
@@ -203,6 +381,107 @@ func (m model) View() string {
 
 	b.WriteString("\n")
 	return b.String()
+}
+
+func (m *model) activeJournalName() string {
+	if m.cfg == nil {
+		return ""
+	}
+	return m.cfg.ActiveJournal
+}
+
+func (m *model) selectedJournalName() string {
+	if len(m.journalNames) == 0 {
+		return ""
+	}
+	if m.journalIndex < 0 {
+		m.journalIndex = 0
+	}
+	if m.journalIndex >= len(m.journalNames) {
+		m.journalIndex = len(m.journalNames) - 1
+	}
+	return m.journalNames[m.journalIndex]
+}
+
+func (m *model) openLogsFor(name string) (tea.Model, tea.Cmd) {
+	_, repoPath, err := m.cfg.journal(name)
+	if err != nil {
+		m.syncErr = err
+		return m, nil
+	}
+	m.list = newListModel(repoPath)
+	m.list.windowHeight = m.windowHeight
+	m.list.windowWidth = m.windowWidth
+	m.screen = screenLogs
+	return m, m.list.Init()
+}
+
+func (m *model) refreshSyncFor(name string) (tea.Model, tea.Cmd) {
+	journalName, repoPath, err := m.cfg.journal(name)
+	if err != nil {
+		m.syncFor = name
+		m.syncStatus = nil
+		m.syncErr = err
+		return m, nil
+	}
+	m.syncFor = journalName
+	m.syncLoading = true
+	m.syncStatus = nil
+	m.syncErr = nil
+	return m, tea.Batch(m.spinner.Tick, syncStatusCmd(journalName, repoPath))
+}
+
+func (m *model) switchActiveJournal(name string) error {
+	if err := m.cfg.setActiveJournal(name); err != nil {
+		return err
+	}
+	if err := writeConfig(m.cfg); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+	_, repoPath, err := m.cfg.activeJournal()
+	if err != nil {
+		return err
+	}
+	m.repoPath = repoPath
+	for i, n := range m.journalNames {
+		if n == name {
+			m.journalIndex = i
+			break
+		}
+	}
+	return nil
+}
+
+func (m model) syncSummary() string {
+	label := "sync: "
+	if m.syncFor != "" {
+		label += m.syncFor + " · "
+	}
+	if m.syncLoading {
+		return label + m.spinner.View() + " checking..."
+	}
+	if m.syncErr != nil {
+		return label + "error: " + m.syncErr.Error()
+	}
+	if m.syncStatus == nil {
+		return label + "unknown"
+	}
+	if !m.syncStatus.HasUpstream {
+		if m.syncStatus.LocalOnly {
+			return label + "local only"
+		}
+		return label + "no upstream configured"
+	}
+	switch {
+	case m.syncStatus.Ahead == 0 && m.syncStatus.Behind == 0:
+		return label + "up to date"
+	case m.syncStatus.Ahead > 0 && m.syncStatus.Behind > 0:
+		return fmt.Sprintf("%s%d to push, %d to pull", label, m.syncStatus.Ahead, m.syncStatus.Behind)
+	case m.syncStatus.Ahead > 0:
+		return fmt.Sprintf("%s%d to push", label, m.syncStatus.Ahead)
+	default:
+		return fmt.Sprintf("%s%d to pull", label, m.syncStatus.Behind)
+	}
 }
 
 func formatDate(t time.Time) string {
@@ -358,7 +637,7 @@ func (m listModel) View() string {
 		if m.err != nil {
 			b.WriteString("  " + errorStyle.Render(fmt.Sprintf("error: %v", m.err)) + "\n")
 		} else if len(m.entries) == 0 {
-			b.WriteString("  " + subtitleStyle.Render("no entries yet") + "\n")
+			b.WriteString("  " + subtitleStyle.Render("no entries found for this journal") + "\n")
 		} else {
 			end := m.top + m.visibleCount()
 			if end > len(m.entries) {

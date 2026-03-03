@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,5 +181,26 @@ func TestResolveSyncStatusTarget(t *testing.T) {
 				t.Fatalf("all got %v, want %v", gotAll, tt.wantAll)
 			}
 		})
+	}
+}
+
+func TestIsNoCommitsError(t *testing.T) {
+	err := fmt.Errorf("exit status 128: fatal: your current branch 'main' does not have any commits yet")
+	if !isNoCommitsError(err) {
+		t.Fatal("expected no-commits error to be recognized")
+	}
+	if isNoCommitsError(fmt.Errorf("some other git error")) {
+		t.Fatal("unexpected no-commits classification")
+	}
+}
+
+func TestSyncSummaryLocalOnly(t *testing.T) {
+	m := model{
+		syncFor:    "test",
+		syncStatus: &SyncStatus{HasUpstream: false, LocalOnly: true},
+	}
+	got := m.syncSummary()
+	if !strings.Contains(got, "local only") {
+		t.Fatalf("got %q, want local-only summary", got)
 	}
 }

@@ -101,13 +101,12 @@ func main() {
 		}
 	}
 
-	_, repoPath, err := cfg.activeJournal()
-	if err != nil {
+	if _, _, err := cfg.activeJournal(); err != nil {
 		fmt.Fprintf(os.Stderr, "journal: %v\n", err)
 		os.Exit(1)
 	}
 
-	m := newModel(repoPath)
+	m := newModel(cfg)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	finalModel, err := p.Run()
 	if err != nil {
@@ -408,8 +407,13 @@ func printSyncStatus(name string, status SyncStatus) {
 		fmt.Printf("branch: %s\n", status.Branch)
 	}
 	if !status.HasUpstream {
-		fmt.Println("upstream: none configured")
-		fmt.Println("status: cannot determine push/pull counts")
+		if status.LocalOnly {
+			fmt.Println("upstream: none")
+			fmt.Println("status: local only")
+		} else {
+			fmt.Println("upstream: none configured")
+			fmt.Println("status: cannot determine push/pull counts")
+		}
 		return
 	}
 	fmt.Printf("upstream: %s\n", status.Upstream)

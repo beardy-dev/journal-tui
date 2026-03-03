@@ -14,6 +14,7 @@ type SyncStatus struct {
 	Branch      string
 	Upstream    string
 	HasUpstream bool
+	LocalOnly   bool
 	Ahead       int
 	Behind      int
 }
@@ -29,9 +30,16 @@ func commitEntry(repoPath, entry string, loc Location) error {
 		content += fmt.Sprintf(">>> (%s)\n", location)
 	}
 
-	// Pull latest changes first
-	if err := git(repoPath, "pull", "--rebase"); err != nil {
-		return fmt.Errorf("git pull: %w", err)
+	syncStatus, err := getSyncStatus(repoPath)
+	if err != nil {
+		return fmt.Errorf("determine sync status: %w", err)
+	}
+
+	// Pull only when an upstream is configured.
+	if syncStatus.HasUpstream {
+		if err := git(repoPath, "pull", "--rebase"); err != nil {
+			return fmt.Errorf("git pull: %w", err)
+		}
 	}
 
 	// Write the file
@@ -51,9 +59,11 @@ func commitEntry(repoPath, entry string, loc Location) error {
 		return fmt.Errorf("git commit: %w", err)
 	}
 
-	// Push
-	if err := git(repoPath, "push"); err != nil {
-		return fmt.Errorf("git push: %w", err)
+	// Push only when an upstream is configured.
+	if syncStatus.HasUpstream {
+		if err := git(repoPath, "push"); err != nil {
+			return fmt.Errorf("git push: %w", err)
+		}
 	}
 
 	return nil
@@ -101,11 +111,24 @@ func commitsAhead(repoPath string) (int, error) {
 }
 
 func getSyncStatus(repoPath string) (SyncStatus, error) {
-	branchOut, err := gitOutput(repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	branchOut, err := gitOutput(repoPath, "symbolic-ref", "--short", "HEAD")
 	if err != nil {
-		return SyncStatus{}, fmt.Errorf("resolve branch: %w", err)
+		// Unborn HEAD or detached states can fail here; keep branch optional.
+		branchOut = nil
 	}
 	branch := strings.TrimSpace(string(branchOut))
+
+	remoteOut, err := gitOutput(repoPath, "remote")
+	if err != nil {
+		return SyncStatus{}, fmt.Errorf("read remotes: %w", err)
+	}
+	if strings.TrimSpace(string(remoteOut)) == "" {
+		return SyncStatus{
+			Branch:      branch,
+			HasUpstream: false,
+			LocalOnly:   true,
+		}, nil
+	}
 
 	upstreamOut, err := gitOutput(repoPath, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 	if err != nil {

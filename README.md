@@ -64,7 +64,7 @@ journal help      show available commands
 
 ### Writing an entry
 
-Running `journal` with no arguments opens the writing interface immediately. The header shows the current date/time right away, then updates with your approximate location once lookup returns.
+Running `journal` with no arguments opens the writing interface. The header shows the current date, time, and your approximate location.
 
 ```
   journal
@@ -146,4 +146,4 @@ MIT
 
 ---
 
-Vibe coded with [Claude Code](https://claude.ai/code) and [Codex](https://openai.com/codex/)
+Vibe coded with [Claude Code](https://claude.ai/code)

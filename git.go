@@ -16,10 +16,7 @@ func commitEntry(repoPath, entry string, loc Location) error {
 	filename := timestamp + ".txt"
 
 	// File content matching iOS shortcut format
-	content := fmt.Sprintf("new_entry_added:\n>>> %s\n", timestamp)
-	if location := loc.String(); location != "" {
-		content += fmt.Sprintf(">>> (%s)\n", location)
-	}
+	content := fmt.Sprintf("new_entry_added:\n>>> %s\n>>> (%s)\n", timestamp, loc.String())
 
 	// Pull latest changes first
 	if err := git(repoPath, "pull", "--rebase"); err != nil {

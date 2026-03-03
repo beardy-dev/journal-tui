@@ -16,7 +16,7 @@ import (
 type state int
 
 const (
-	stateLoading state = iota
+	stateLoading   state = iota
 	stateComposing
 	stateCommitting
 	stateDone
@@ -48,7 +48,6 @@ type model struct {
 	state    state
 	spinner  spinner.Model
 	textarea textarea.Model
-	locating bool
 	location Location
 	now      time.Time
 	repoPath string
@@ -73,10 +72,9 @@ func newModel(repoPath string) model {
 	ta.BlurredStyle.Base = lipgloss.NewStyle()
 
 	return model{
-		state:    stateComposing,
+		state:    stateLoading,
 		spinner:  sp,
 		textarea: ta,
-		locating: true,
 		now:      time.Now(),
 		repoPath: repoPath,
 	}
@@ -131,10 +129,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case geoMsg:
-		m.locating = false
-		if msg.err == nil {
+		if msg.err != nil {
+			// Non-fatal: use empty location
+			m.location = Location{City: "Unknown", Region: "??"}
+		} else {
 			m.location = msg.loc
 		}
+		m.state = stateComposing
 		return m, textarea.Blink
 
 	case commitDoneMsg:
@@ -147,11 +148,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case spinner.TickMsg:
-		if m.locating || m.state == stateCommitting {
-			var cmd tea.Cmd
-			m.spinner, cmd = m.spinner.Update(msg)
-			return m, cmd
-		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	}
 
 	if m.state == stateComposing {
@@ -170,8 +169,14 @@ func (m model) View() string {
 	b.WriteString("  " + titleStyle.Render("journal") + "\n")
 
 	switch m.state {
+	case stateLoading:
+		b.WriteString("  " + subtitleStyle.Render(formatDate(m.now)) + "\n")
+		b.WriteString("\n")
+		b.WriteString("  " + m.spinner.View() + " fetching location…\n")
+
 	case stateComposing:
-		b.WriteString("  " + subtitleStyle.Render(formatComposeHeader(m.now, m.location, m.locating, m.spinner)) + "\n")
+		header := formatDate(m.now) + " · " + m.location.String()
+		b.WriteString("  " + subtitleStyle.Render(header) + "\n")
 		b.WriteString("\n")
 		// Indent textarea
 		lines := strings.Split(m.textarea.View(), "\n")
@@ -182,10 +187,7 @@ func (m model) View() string {
 		b.WriteString("  " + hintStyle.Render("ctrl+s commit  ·  esc quit") + "\n")
 
 	case stateCommitting:
-		header := formatDate(m.now)
-		if location := m.location.String(); location != "" {
-			header += " · " + location
-		}
+		header := formatDate(m.now) + " · " + m.location.String()
 		b.WriteString("  " + subtitleStyle.Render(header) + "\n")
 		b.WriteString("\n")
 		b.WriteString("  " + m.spinner.View() + " committing…\n")
@@ -209,22 +211,12 @@ func formatDate(t time.Time) string {
 	return t.Format("Mon, January 2 · 3:04 PM")
 }
 
-func formatComposeHeader(now time.Time, loc Location, locating bool, sp spinner.Model) string {
-	header := formatDate(now)
-	if location := loc.String(); location != "" {
-		header += " · " + location
-	} else if locating {
-		header += " · " + sp.View() + " locating..."
-	}
-	return header
-}
-
 // ── List model ────────────────────────────────────────────────────────────────
 
 type listState int
 
 const (
-	listLoading listState = iota
+	listLoading  listState = iota
 	listBrowsing
 	listDetail
 )
@@ -417,8 +409,8 @@ func (m listModel) visibleCount() int {
 
 func (m listModel) vpWidth() int {
 	w := m.windowWidth - 4
-	if w < 1 {
-		w = 1
+	if w < 20 {
+		w = 60
 	}
 	return w
 }
@@ -426,8 +418,8 @@ func (m listModel) vpWidth() int {
 func (m listModel) vpHeight() int {
 	// title(1) + blank(1) + date(1) + location(1) + sep(1) + blank(1) + footer blank(1) + footer hint(1) = 8
 	h := m.windowHeight - 8
-	if h < 1 {
-		h = 1
+	if h < 5 {
+		h = 10
 	}
 	return h
 }

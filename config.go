@@ -13,7 +13,14 @@ type Config struct {
 }
 
 func configPath() string {
-	return filepath.Join(os.Getenv("HOME"), ".config", "journal", "config.toml")
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("HOME")
+	}
+	if home == "" {
+		return filepath.Join(".config", "journal", "config.toml")
+	}
+	return filepath.Join(home, ".config", "journal", "config.toml")
 }
 
 func loadConfig() (*Config, error) {

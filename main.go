@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -88,6 +89,10 @@ func firstRunSetup() (*Config, error) {
 	if repoPath == "" {
 		return nil, fmt.Errorf("repo path cannot be empty")
 	}
+	repoPath, err = normalizeRepoPath(repoPath)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := ensureRepo(repoPath, reader); err != nil {
 		return nil, err
@@ -124,6 +129,22 @@ func ensureRepo(path string, reader *bufio.Reader) error {
 	}
 
 	return initRepo(path)
+}
+
+func normalizeRepoPath(path string) (string, error) {
+	path = os.ExpandEnv(path)
+	if strings.HasPrefix(path, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return "", fmt.Errorf("could not resolve home directory")
+		}
+		if path == "~" {
+			path = home
+		} else if strings.HasPrefix(path, "~/") {
+			path = filepath.Join(home, path[2:])
+		}
+	}
+	return filepath.Clean(path), nil
 }
 
 // runHelp prints available commands.
